@@ -29,6 +29,32 @@ module ActiveModelSerializers::Jsonapi
     response: { 'CONTENT_TYPE'.freeze => MEDIA_TYPE },
     request:  { 'ACCEPT'.freeze => MEDIA_TYPE }
   }.freeze
+  def self.install
+    # actionpack/lib/action_dispatch/http/mime_types.rb
+    Mime::Type.register MEDIA_TYPE, :jsonapi
+
+    mime_type = Mime::Type.lookup(MEDIA_TYPE)
+    if Rails::VERSION::MAJOR >= 5
+      parsers = ActionDispatch::Request.parameter_parsers.merge(
+        mime_type.symbol => parser
+      )
+      ActionDispatch::Request.parameter_parsers = parsers
+    else
+      ActionDispatch::ParamsParser::DEFAULT_PARSERS[mime_type] = parser
+    end
+  end
+
+  # Proposal: should actually deserialize the JSON API params
+  # to the hash format expected by `ActiveModel::Serializers::JSON`
+  # actionpack/lib/action_dispatch/http/parameters.rb
+  def self.parser
+    lambda do |body|
+      data = JSON.parse(body)
+      data = {:_json => data} unless data.is_a?(Hash)
+      data.with_indifferent_access
+    end
+  end
+
   module ControllerSupport
     def serialize_jsonapi(json, options)
       options[:adapter] = :json_api
@@ -38,20 +64,7 @@ module ActiveModelSerializers::Jsonapi
   end
 end
 
-# actionpack/lib/action_dispatch/http/mime_types.rb
-Mime::Type.register ActiveModelSerializers::Jsonapi::MEDIA_TYPE, :jsonapi
-
-parsers = Rails::VERSION::MAJOR >= 5 ? ActionDispatch::Http::Parameters : ActionDispatch::ParamsParser
-media_type = Mime::Type.lookup(ActiveModelSerializers::Jsonapi::MEDIA_TYPE)
-
-# Proposal: should actually deserialize the JSON API params
-# to the hash format expected by `ActiveModel::Serializers::JSON`
-# actionpack/lib/action_dispatch/http/parameters.rb
-parsers::DEFAULT_PARSERS[media_type] = lambda do |body|
-  data = JSON.parse(body)
-  data = { :_json => data } unless data.is_a?(Hash)
-  data.with_indifferent_access
-end
+ActiveModelSerializers::Jsonapi.install
 
 # ref https://github.com/rails/rails/pull/21496
 ActionController::Renderers.add :jsonapi do |json, options|
